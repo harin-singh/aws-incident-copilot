@@ -29,6 +29,9 @@ class IncidentCopilot:
     combined with runbook retrieval and human-in-the-loop approval.
     """
 
+    model: Model | None
+    demo_provider: DemoDataProvider | None
+
     def __init__(
         self,
         demo_mode: bool = True,

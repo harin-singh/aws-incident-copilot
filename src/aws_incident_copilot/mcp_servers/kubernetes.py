@@ -464,5 +464,5 @@ def _pod_ready(pod: Any) -> bool:
     """Check if a pod is ready."""
     for condition in pod.status.conditions or []:
         if condition.type == "Ready":
-            return condition.status == "True"
+            return bool(condition.status == "True")
     return False
