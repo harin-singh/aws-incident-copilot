@@ -1,0 +1,29 @@
+# AWS Incident Copilot - Example Terraform Variables
+#
+# Copy this file to terraform.tfvars and customize for your environment.
+# NEVER commit terraform.tfvars with sensitive values to git.
+
+# AWS region to deploy resources
+aws_region = "us-west-2"
+
+# Environment name (affects resource naming)
+environment = "dev"
+
+# Bedrock model to use for AI analysis
+# Options: anthropic.claude-3-sonnet-20240229-v1:0, anthropic.claude-3-haiku-20240307-v1:0
+bedrock_model_id = "anthropic.claude-3-sonnet-20240229-v1:0"
+
+# EKS clusters to monitor (leave empty if not using EKS)
+eks_cluster_names = [
+  # "production-eks",
+  # "staging-eks",
+]
+
+# ECS clusters to monitor (leave empty if not using ECS)
+ecs_cluster_names = [
+  # "production-cluster",
+  # "staging-cluster",
+]
+
+# SNS topic for alert notifications (optional)
+# alert_sns_topic_arn = "arn:aws:sns:us-west-2:123456789:incident-alerts"

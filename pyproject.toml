@@ -1,0 +1,148 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aws-incident-copilot"
+version = "0.1.0"
+description = "AI incident copilot for AWS: investigates EKS/ECS incidents via MCP tools and proposes fixes with human-in-the-loop approval"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Harinder Singh" }
+]
+keywords = [
+    "aws",
+    "bedrock",
+    "incident-response",
+    "kubernetes",
+    "ecs",
+    "eks",
+    "mcp",
+    "ai-agent",
+    "sre",
+    "devops",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "strands-agents>=1.60.0,<2.0.0",
+    "mcp>=2.0.0,<3.0.0",
+    "boto3>=1.35.0",
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+    "click>=8.1.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.7.0",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
+    "moto[all]>=5.0.0",
+]
+live = [
+    "kubernetes>=31.0.0",
+]
+
+[project.scripts]
+incident-copilot = "aws_incident_copilot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/harindersingh/aws-incident-copilot"
+Repository = "https://github.com/harindersingh/aws-incident-copilot"
+Issues = "https://github.com/harindersingh/aws-incident-copilot/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aws_incident_copilot"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/runbooks",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "S",      # flake8-bandit (security)
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking
+    "PTH",    # flake8-use-pathlib
+    "RUF",    # Ruff-specific rules
+]
+ignore = [
+    "S101",   # assert used - OK in tests
+    "S603",   # subprocess call - OK with controlled input
+    "S607",   # start process with partial path - OK in controlled env
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106"]
+"src/aws_incident_copilot/demo/fixtures.py" = ["E501"]
+"src/aws_incident_copilot/demo/model_stub.py" = ["E501"]
+"src/aws_incident_copilot/agents/copilot.py" = ["E501"]
+"src/aws_incident_copilot/runbooks/library.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aws_incident_copilot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+strict = false
+exclude = ["build", "dist"]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
