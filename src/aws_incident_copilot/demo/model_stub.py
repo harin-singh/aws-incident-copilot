@@ -82,7 +82,7 @@ class DemoModelProvider(Model):
             yield {
                 "contentBlockStart": {
                     "contentBlockIndex": idx,
-                    "start": {"text": ""},
+                    "start": {"text": ""},  # type: ignore[typeddict-unknown-key]
                 }
             }
             yield {

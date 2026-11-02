@@ -5,7 +5,7 @@ enabling the demo mode to run without AWS credentials.
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 
 class DemoDataProvider:
@@ -27,7 +27,10 @@ class DemoDataProvider:
         filter_pattern: str | None = None,
     ) -> dict[str, Any]:
         """Get CloudWatch logs fixture data."""
-        return self.scenario_data.get("cloudwatch_logs", DEFAULT_CLOUDWATCH_LOGS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("cloudwatch_logs", DEFAULT_CLOUDWATCH_LOGS),
+        )
 
     def get_cloudwatch_metrics(
         self,
@@ -37,7 +40,10 @@ class DemoDataProvider:
     ) -> dict[str, Any]:
         """Get CloudWatch metrics fixture data."""
         metrics_key = f"{namespace}/{metric_name}"
-        return self.scenario_data.get("cloudwatch_metrics", {}).get(metrics_key, DEFAULT_METRICS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("cloudwatch_metrics", {}).get(metrics_key, DEFAULT_METRICS),
+        )
 
     def get_cloudwatch_alarms(
         self,
@@ -45,7 +51,10 @@ class DemoDataProvider:
         state: str | None = None,
     ) -> dict[str, Any]:
         """Get CloudWatch alarms fixture data."""
-        return self.scenario_data.get("cloudwatch_alarms", DEFAULT_ALARMS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("cloudwatch_alarms", DEFAULT_ALARMS),
+        )
 
     def get_log_events(
         self,
@@ -54,7 +63,10 @@ class DemoDataProvider:
         limit: int = 50,
     ) -> dict[str, Any]:
         """Get log events fixture data."""
-        return self.scenario_data.get("log_events", DEFAULT_LOG_EVENTS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("log_events", DEFAULT_LOG_EVENTS),
+        )
 
     def list_log_streams(
         self,
@@ -62,7 +74,10 @@ class DemoDataProvider:
         prefix: str | None = None,
     ) -> dict[str, Any]:
         """List log streams fixture data."""
-        return self.scenario_data.get("log_streams", DEFAULT_LOG_STREAMS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("log_streams", DEFAULT_LOG_STREAMS),
+        )
 
     def get_pod_description(
         self,
@@ -70,7 +85,10 @@ class DemoDataProvider:
         namespace: str = "default",
     ) -> dict[str, Any]:
         """Get pod description fixture data."""
-        return self.scenario_data.get("pod_description", DEFAULT_POD_DESCRIPTION)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("pod_description", DEFAULT_POD_DESCRIPTION),
+        )
 
     def get_kubernetes_events(
         self,
@@ -79,7 +97,10 @@ class DemoDataProvider:
         resource_kind: str | None = None,
     ) -> dict[str, Any]:
         """Get Kubernetes events fixture data."""
-        return self.scenario_data.get("kubernetes_events", DEFAULT_K8S_EVENTS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("kubernetes_events", DEFAULT_K8S_EVENTS),
+        )
 
     def list_pods(
         self,
@@ -87,7 +108,10 @@ class DemoDataProvider:
         label_selector: str | None = None,
     ) -> dict[str, Any]:
         """List pods fixture data."""
-        return self.scenario_data.get("pods_list", DEFAULT_PODS_LIST)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("pods_list", DEFAULT_PODS_LIST),
+        )
 
     def get_deployment_description(
         self,
@@ -95,7 +119,10 @@ class DemoDataProvider:
         namespace: str = "default",
     ) -> dict[str, Any]:
         """Get deployment description fixture data."""
-        return self.scenario_data.get("deployment_description", DEFAULT_DEPLOYMENT)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("deployment_description", DEFAULT_DEPLOYMENT),
+        )
 
     def list_replicasets(
         self,
@@ -103,7 +130,10 @@ class DemoDataProvider:
         deployment_name: str | None = None,
     ) -> dict[str, Any]:
         """List ReplicaSets fixture data."""
-        return self.scenario_data.get("replicasets", DEFAULT_REPLICASETS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("replicasets", DEFAULT_REPLICASETS),
+        )
 
     def get_pod_logs(
         self,
@@ -114,11 +144,17 @@ class DemoDataProvider:
     ) -> dict[str, Any]:
         """Get pod logs fixture data."""
         logs_key = "pod_logs_previous" if previous else "pod_logs"
-        return self.scenario_data.get(logs_key, DEFAULT_POD_LOGS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get(logs_key, DEFAULT_POD_LOGS),
+        )
 
     def get_node_description(self, name: str) -> dict[str, Any]:
         """Get node description fixture data."""
-        return self.scenario_data.get("node_description", DEFAULT_NODE)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("node_description", DEFAULT_NODE),
+        )
 
     def get_ecs_service(
         self,
@@ -126,7 +162,10 @@ class DemoDataProvider:
         service: str,
     ) -> dict[str, Any]:
         """Get ECS service fixture data."""
-        return self.scenario_data.get("ecs_service", DEFAULT_ECS_SERVICE)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("ecs_service", DEFAULT_ECS_SERVICE),
+        )
 
     def list_ecs_tasks(
         self,
@@ -135,7 +174,10 @@ class DemoDataProvider:
         status: str = "RUNNING",
     ) -> dict[str, Any]:
         """List ECS tasks fixture data."""
-        return self.scenario_data.get("ecs_tasks", DEFAULT_ECS_TASKS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("ecs_tasks", DEFAULT_ECS_TASKS),
+        )
 
     def get_stopped_tasks(
         self,
@@ -143,18 +185,27 @@ class DemoDataProvider:
         service: str | None = None,
     ) -> dict[str, Any]:
         """Get stopped tasks fixture data."""
-        return self.scenario_data.get("stopped_tasks", DEFAULT_STOPPED_TASKS)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("stopped_tasks", DEFAULT_STOPPED_TASKS),
+        )
 
     def get_task_definition(
         self,
         task_definition: str,
     ) -> dict[str, Any]:
         """Get task definition fixture data."""
-        return self.scenario_data.get("task_definition", DEFAULT_TASK_DEF)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("task_definition", DEFAULT_TASK_DEF),
+        )
 
     def get_ecs_cluster(self, cluster: str) -> dict[str, Any]:
         """Get ECS cluster fixture data."""
-        return self.scenario_data.get("ecs_cluster", DEFAULT_ECS_CLUSTER)
+        return cast(
+            "dict[str, Any]",
+            self.scenario_data.get("ecs_cluster", DEFAULT_ECS_CLUSTER),
+        )
 
 
 def _now() -> datetime:
