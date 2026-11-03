@@ -31,13 +31,13 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 locals {
-  account_id        = data.aws_caller_identity.current.account_id
-  region            = data.aws_region.current.id
-  name_prefix       = "${var.project_name}-${var.environment}"
-  runtime_name      = replace("${local.name_prefix}_runtime", "-", "_")
-  gateway_name      = "${local.name_prefix}-gateway"
-  ecr_repo_name     = "${local.name_prefix}-agent"
-  container_uri     = var.container_image_uri != "" ? var.container_image_uri : "${aws_ecr_repository.agent[0].repository_url}:${var.image_tag}"
+  account_id    = data.aws_caller_identity.current.account_id
+  region        = data.aws_region.current.id
+  name_prefix   = "${var.project_name}-${var.environment}"
+  runtime_name  = replace("${local.name_prefix}_runtime", "-", "_")
+  gateway_name  = "${local.name_prefix}-gateway"
+  ecr_repo_name = "${local.name_prefix}-agent"
+  container_uri = var.container_image_uri != "" ? var.container_image_uri : "${aws_ecr_repository.agent[0].repository_url}:${var.image_tag}"
 }
 
 # -----------------------------------------------------------------------------
@@ -70,9 +70,9 @@ resource "aws_ecr_lifecycle_policy" "agent" {
         rulePriority = 1
         description  = "Keep last 10 images"
         selection = {
-          tagStatus     = "any"
-          countType     = "imageCountMoreThan"
-          countNumber   = 10
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 10
         }
         action = {
           type = "expire"
@@ -357,10 +357,10 @@ resource "aws_bedrockagentcore_agent_runtime" "agent" {
 
   environment_variables = merge(
     {
-      DEMO_MODE      = var.demo_mode ? "true" : "false"
-      DEMO_SCENARIO  = var.demo_scenario
-      LOG_LEVEL      = var.log_level
-      AWS_REGION     = local.region
+      DEMO_MODE     = var.demo_mode ? "true" : "false"
+      DEMO_SCENARIO = var.demo_scenario
+      LOG_LEVEL     = var.log_level
+      AWS_REGION    = local.region
     },
     var.extra_environment_variables
   )

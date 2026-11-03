@@ -15,7 +15,7 @@ terraform {
 
   required_providers {
     aws = {
-      source  = "hashicorp/aws"
+      source = "hashicorp/aws"
       # Note: >= 6.18.0 required for aws_bedrockagentcore_* resources
       # Using ~> 6.18 when enable_agentcore = true
       version = ">= 5.0.0"
