@@ -21,6 +21,8 @@ This project demonstrates production-ready patterns for AI-assisted operations w
 
 ## Architecture
 
+### Local / CLI Mode
+
 ```mermaid
 flowchart TB
     subgraph Alerts["Alert Sources"]
@@ -75,6 +77,49 @@ flowchart TB
     HITL -->|Approved| ACT
     ACT -.->|Execute| EKSAWS
     ACT -.->|Execute| ECSAWS
+```
+
+### Amazon Bedrock AgentCore Deployment
+
+```mermaid
+flowchart TB
+    subgraph Client["Client"]
+        API[API Client<br/>POST /invocations]
+    end
+
+    subgraph AgentCore["Amazon Bedrock AgentCore"]
+        direction TB
+        RT[AgentCore Runtime<br/>ARM64 Container]
+        GW[AgentCore Gateway<br/>MCP Protocol]
+    end
+
+    subgraph Container["Container Image"]
+        direction TB
+        EP[BedrockAgentCoreApp<br/>Entrypoint]
+        SA[Strands Agent<br/>+ Bedrock Claude]
+        RB[Runbook Library]
+    end
+
+    subgraph AWS["AWS Services"]
+        direction TB
+        ECR[ECR Repository]
+        CW[CloudWatch]
+        EKS[EKS Cluster]
+        ECS[ECS Cluster]
+        BR[Bedrock Models]
+    end
+
+    API -->|HTTPS| RT
+    RT --> Container
+    EP --> SA
+    SA <--> RB
+    SA <-->|Invoke| BR
+
+    GW -.->|MCP Tools| CW
+    GW -.->|MCP Tools| EKS
+    GW -.->|MCP Tools| ECS
+
+    ECR -->|Pull Image| RT
 ```
 
 ## Features
@@ -201,18 +246,35 @@ Log data may contain adversarial content. The system prompt instructs the model 
 [Model Context Protocol](https://modelcontextprotocol.io/) provides a standardized interface for tools. This allows:
 - Easy testing with fixture data (demo mode)
 - Swappable implementations (mock → real AWS)
-- Future integration with AgentCore Gateway
+- Integration with AgentCore Gateway for managed tool serving
 
-## Live Mode Deployment
+### Security Notes for AgentCore Deployment
 
-### 1. Configure AWS Credentials
+The Terraform configuration follows AWS security best practices:
+
+1. **Least-Privilege IAM**: The runtime execution role has read-only access for investigation. The remediation role (optional) requires resource tags and external IDs.
+
+2. **Network Isolation**: AgentCore Runtime can run in `PUBLIC` mode (default) or `VPC` mode for private network access.
+
+3. **Container Security**: The Dockerfile runs as non-root user with minimal base image.
+
+4. **Expected Checkov Findings**: The following Checkov findings are intentional and documented:
+   - `CKV_AWS_355`: IAM policies use `Resource: "*"` for read-only `Describe*/List*` actions. This is required for cross-resource investigation.
+   - `CKV_AWS_158`: CloudWatch Log Group KMS encryption is optional. Enable for compliance environments.
+   - `CKV_AWS_338`: 30-day log retention is the default for cost efficiency. Increase via `log_retention_days` variable.
+
+## Deployment Options
+
+### Option 1: Local / CLI Mode
+
+#### 1. Configure AWS Credentials
 
 ```bash
 # Ensure Bedrock model access is enabled in your region
 aws configure
 ```
 
-### 2. Deploy Infrastructure
+#### 2. Deploy Infrastructure
 
 ```bash
 cd terraform
@@ -220,19 +282,97 @@ cd terraform
 # Copy and customize variables
 cp variables.tfvars.example terraform.tfvars
 
-# Deploy
+# Deploy (without AgentCore)
 terraform init
 terraform plan
 terraform apply
 ```
 
-### 3. Run in Live Mode
+#### 3. Run in Live Mode
 
 ```bash
 python -m aws_incident_copilot.cli run --mode live --region us-west-2
 ```
 
-### Cost Estimate
+---
+
+### Option 2: Amazon Bedrock AgentCore Deployment
+
+AgentCore provides a fully managed runtime for AI agents with built-in scaling, security, and observability.
+
+#### Prerequisites
+
+- AWS Provider >= 6.18.0 (required for `aws_bedrockagentcore_*` resources)
+- Docker (for building ARM64 images)
+- Bedrock model access enabled in your region
+
+#### 1. Build and Push Container Image
+
+```bash
+# Build ARM64 image (required for AgentCore)
+docker buildx build --platform linux/arm64 \
+  -t aws-incident-copilot:latest .
+
+# Tag and push to ECR (after terraform creates the repo)
+AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+AWS_REGION=us-west-2
+
+aws ecr get-login-password --region $AWS_REGION | \
+  docker login --username AWS --password-stdin $AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
+
+docker tag aws-incident-copilot:latest \
+  $AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/incident-copilot-dev-agent:latest
+
+docker push $AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/incident-copilot-dev-agent:latest
+```
+
+#### 2. Deploy AgentCore Infrastructure
+
+```bash
+cd terraform
+
+# Enable AgentCore deployment
+cat >> terraform.tfvars <<EOF
+enable_agentcore = true
+agentcore_demo_mode = false
+agentcore_enable_gateway = true
+agentcore_enable_remediation = false
+EOF
+
+terraform init -upgrade  # Need AWS provider >= 6.18.0
+terraform plan
+terraform apply
+```
+
+#### 3. Invoke the Agent
+
+```bash
+# Get the Runtime ID
+RUNTIME_ID=$(terraform output -raw agentcore_runtime_id)
+
+# Invoke via AWS CLI
+aws bedrock-agent-runtime invoke-agent \
+  --agent-id $RUNTIME_ID \
+  --session-id "test-session-1" \
+  --input-text '{"alert_type":"eks-crashloop","title":"Pod CrashLoopBackOff"}' \
+  --region us-west-2
+```
+
+#### AgentCore Terraform Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `enable_agentcore` | `false` | Enable AgentCore deployment |
+| `agentcore_demo_mode` | `false` | Run in demo mode (fixture data) |
+| `agentcore_enable_gateway` | `false` | Enable MCP Gateway for tools |
+| `agentcore_enable_remediation` | `false` | Enable remediation IAM role |
+| `agentcore_image_tag` | `latest` | Docker image tag |
+
+---
+
+### Cost Estimates
+
+#### Local/CLI Mode
 
 | Resource | Estimated Monthly Cost |
 |----------|----------------------|
@@ -241,6 +381,21 @@ python -m aws_incident_copilot.cli run --mode live --region us-west-2
 | Bedrock Claude Sonnet | ~$3-15 depending on usage |
 | Lambda (if deployed) | ~$0.20/1M requests |
 | **Total** | **~$5-15/month** (light usage) |
+
+#### AgentCore Mode
+
+| Resource | Estimated Monthly Cost |
+|----------|----------------------|
+| AgentCore Runtime | $0.0001/sec (billed per-second) |
+| ECR Storage | $0.10/GB-month |
+| Bedrock Claude Sonnet | ~$3-15 depending on usage |
+| CloudWatch Logs | $0.50/GB ingested |
+| AgentCore Gateway (optional) | $0.0001/request |
+| **Total** | **~$15-50/month** (moderate usage) |
+
+*Assumptions: 100 investigations/month, 30-second average session, us-west-2 region*
+
+---
 
 ### Teardown
 
@@ -295,10 +450,11 @@ aws-incident-copilot/
 
 ### Roadmap
 
+- [x] AgentCore Runtime deployment option (Terraform module)
+- [x] AgentCore Gateway integration for MCP tools
 - [ ] Bedrock Knowledge Bases integration for semantic runbook search
 - [ ] Slack approval workflow via Slack MCP
 - [ ] Step Functions integration for async approval flows
-- [ ] AgentCore Gateway deployment option
 - [ ] Multi-cluster support with cluster autodiscovery
 - [ ] Integration with PagerDuty/OpsGenie for alert ingestion
 - [ ] Prometheus/Grafana metrics export

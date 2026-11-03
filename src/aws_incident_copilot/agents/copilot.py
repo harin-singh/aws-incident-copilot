@@ -163,15 +163,59 @@ class IncidentCopilot:
 
         return report
 
+    async def investigate_alert_async(
+        self,
+        alert: Alert,
+        mcp_tools: list[Any] | None = None,
+    ) -> IncidentReport:
+        """Async version of investigate for AgentCore Runtime.
+
+        Args:
+            alert: The alert that triggered the investigation.
+            mcp_tools: MCP tools to use for investigation.
+
+        Returns:
+            The incident report with findings and recommendations.
+        """
+        return self.investigate(alert, mcp_tools)
+
+    async def investigate_prompt_async(
+        self,
+        prompt: str,
+        mcp_tools: list[Any] | None = None,
+    ) -> dict[str, Any]:
+        """Investigate based on a free-form prompt.
+
+        Args:
+            prompt: Free-form investigation prompt.
+            mcp_tools: MCP tools to use for investigation.
+
+        Returns:
+            Dictionary with investigation results.
+        """
+        agent = self._create_agent(mcp_tools or [])
+
+        response = agent(prompt)
+
+        if hasattr(response, "message"):
+            return {"response": str(response.message), "status": "complete"}
+        return {"response": str(response), "status": "complete"}
+
     def _create_investigation_prompt(self, alert: Alert) -> str:
         """Create the investigation prompt for the agent."""
+        source_val = alert.source.value if hasattr(alert.source, "value") else str(alert.source)
+        severity_val = (
+            alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity)
+        )
+
         prompt = f"""Investigate this incident and provide a detailed analysis.
 
 ## Alert Details
 - **ID**: {alert.id}
+- **Type**: {alert.alert_type}
 - **Title**: {alert.title}
-- **Source**: {alert.source.value}
-- **Severity**: {alert.severity.value}
+- **Source**: {source_val}
+- **Severity**: {severity_val}
 - **Resource**: {alert.resource_id}
 - **Region**: {alert.region}
 - **Time**: {alert.timestamp.isoformat()}
@@ -187,6 +231,10 @@ class IncidentCopilot:
             prompt += f"- Cluster: {alert.cluster}\n"
         if alert.service:
             prompt += f"- ECS Service: {alert.service}\n"
+        if alert.eks_context:
+            prompt += f"- EKS Context: {alert.eks_context}\n"
+        if alert.ecs_context:
+            prompt += f"- ECS Context: {alert.ecs_context}\n"
         if alert.metadata:
             prompt += f"- Metadata: {alert.metadata}\n"
 
@@ -216,15 +264,19 @@ Focus on thorough investigation first, then provide clear remediation options.
             "low": "green",
             "info": "dim",
         }
-        color = severity_colors.get(alert.severity.value, "white")
+        severity_val = (
+            alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity)
+        )
+        color = severity_colors.get(severity_val, "white")
 
         self.console.print()
+        source_val = alert.source.value if hasattr(alert.source, "value") else str(alert.source)
         self.console.print(
             Panel(
                 f"[bold]{alert.title}[/bold]\n\n"
                 f"[dim]ID:[/dim] {alert.id}\n"
-                f"[dim]Source:[/dim] {alert.source.value}\n"
-                f"[dim]Severity:[/dim] [{color}]{alert.severity.value.upper()}[/{color}]\n"
+                f"[dim]Source:[/dim] {source_val}\n"
+                f"[dim]Severity:[/dim] [{color}]{severity_val.upper()}[/{color}]\n"
                 f"[dim]Resource:[/dim] {alert.resource_id}\n\n"
                 f"{alert.description}",
                 title="🚨 Incident Alert",

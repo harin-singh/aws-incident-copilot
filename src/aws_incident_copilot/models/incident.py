@@ -27,21 +27,39 @@ class AlertSource(StrEnum):
     CUSTOM = "custom"
 
 
+def _generate_alert_id() -> str:
+    """Generate a unique alert ID."""
+    import uuid
+
+    return f"alert-{uuid.uuid4().hex[:12]}"
+
+
+def _now() -> datetime:
+    """Get current UTC datetime."""
+    from datetime import UTC
+
+    return datetime.now(UTC)
+
+
 class Alert(BaseModel):
     """Represents an incoming alert that triggers investigation."""
 
-    id: str = Field(description="Unique alert identifier")
-    source: AlertSource = Field(description="Source of the alert")
-    severity: AlertSeverity = Field(description="Alert severity level")
-    title: str = Field(description="Short alert title")
-    description: str = Field(description="Detailed alert description")
-    timestamp: datetime = Field(description="When the alert was triggered")
-    resource_id: str = Field(description="AWS resource identifier (ARN or name)")
+    id: str = Field(default_factory=_generate_alert_id, description="Unique alert identifier")
+    alert_type: str = Field(default="unknown", description="Type of alert (e.g., eks-crashloop)")
+    source: AlertSource | str = Field(default=AlertSource.CUSTOM, description="Alert source")
+    severity: AlertSeverity | str = Field(default=AlertSeverity.MEDIUM, description="Severity")
+    title: str = Field(default="", description="Short alert title")
+    description: str = Field(default="", description="Detailed alert description")
+    timestamp: datetime = Field(default_factory=_now, description="When the alert was triggered")
+    resource_id: str = Field(default="", description="AWS resource identifier (ARN or name)")
     region: str = Field(default="us-west-2", description="AWS region")
     namespace: str | None = Field(default=None, description="Kubernetes namespace if applicable")
     cluster: str | None = Field(default=None, description="EKS cluster name if applicable")
     service: str | None = Field(default=None, description="ECS service name if applicable")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional alert metadata")
+    eks_context: dict[str, Any] | None = Field(default=None, description="EKS-specific context")
+    ecs_context: dict[str, Any] | None = Field(default=None, description="ECS-specific context")
+    raw_payload: dict[str, Any] = Field(default_factory=dict, description="Original raw payload")
 
 
 class Evidence(BaseModel):
@@ -122,8 +140,23 @@ class IncidentReport(BaseModel):
     status: str = Field(default="investigating", description="Current status of the incident")
     summary: str | None = Field(default=None, description="Executive summary of the incident")
 
+    @property
+    def executive_summary(self) -> str:
+        """Generate a brief executive summary."""
+        if self.summary:
+            return self.summary
+        if self.root_cause:
+            confidence = f"{self.root_cause.confidence:.0%}"
+            return f"Root cause: {self.root_cause.primary_cause} (confidence: {confidence})"
+        return f"Investigation {self.status} for alert: {self.alert.title}"
+
     def to_markdown(self) -> str:
         """Generate a markdown report."""
+        source = self.alert.source
+        severity = self.alert.severity
+        source_val = source.value if hasattr(source, "value") else str(source)
+        severity_val = severity.value if hasattr(severity, "value") else str(severity)
+
         lines = [
             f"# Incident Report: {self.alert.title}",
             "",
@@ -132,8 +165,8 @@ class IncidentReport(BaseModel):
             "",
             "## Alert Details",
             f"- **ID:** {self.alert.id}",
-            f"- **Source:** {self.alert.source.value}",
-            f"- **Severity:** {self.alert.severity.value}",
+            f"- **Source:** {source_val}",
+            f"- **Severity:** {severity_val}",
             f"- **Resource:** {self.alert.resource_id}",
             f"- **Triggered:** {self.alert.timestamp.isoformat()}",
             "",
