@@ -154,13 +154,19 @@ def list_scenarios() -> list[dict[str, Any]]:
     Returns:
         List of scenario summaries.
     """
-    return [
-        {
-            "id": s.id,
-            "name": s.name,
-            "description": s.description,
-            "severity": s.alert.severity.value,
-            "source": s.alert.source.value,
-        }
-        for s in SCENARIOS.values()
-    ]
+    results = []
+    for s in SCENARIOS.values():
+        severity = s.alert.severity
+        source = s.alert.source
+        severity_val = severity.value if hasattr(severity, "value") else str(severity)
+        source_val = source.value if hasattr(source, "value") else str(source)
+        results.append(
+            {
+                "id": s.id,
+                "name": s.name,
+                "description": s.description,
+                "severity": severity_val,
+                "source": source_val,
+            }
+        )
+    return results

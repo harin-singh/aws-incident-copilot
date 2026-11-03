@@ -16,7 +16,9 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      # Note: >= 6.18.0 required for aws_bedrockagentcore_* resources
+      # Using ~> 6.18 when enable_agentcore = true
+      version = ">= 5.0.0"
     }
   }
 
@@ -87,6 +89,40 @@ variable "alert_sns_topic_arn" {
 }
 
 # -----------------------------------------------------------------------------
+# AgentCore Configuration (Optional)
+# -----------------------------------------------------------------------------
+
+variable "enable_agentcore" {
+  description = "Enable Amazon Bedrock AgentCore deployment"
+  type        = bool
+  default     = false
+}
+
+variable "agentcore_image_tag" {
+  description = "Docker image tag for AgentCore deployment"
+  type        = string
+  default     = "latest"
+}
+
+variable "agentcore_demo_mode" {
+  description = "Run AgentCore in demo mode (fixture data)"
+  type        = bool
+  default     = false
+}
+
+variable "agentcore_enable_gateway" {
+  description = "Enable AgentCore Gateway for MCP tools"
+  type        = bool
+  default     = false
+}
+
+variable "agentcore_enable_remediation" {
+  description = "Enable remediation role for AgentCore"
+  type        = bool
+  default     = false
+}
+
+# -----------------------------------------------------------------------------
 # Data Sources
 # -----------------------------------------------------------------------------
 
@@ -95,7 +131,7 @@ data "aws_region" "current" {}
 
 locals {
   account_id  = data.aws_caller_identity.current.account_id
-  region      = data.aws_region.current.name
+  region      = data.aws_region.current.id
   name_prefix = "${var.project_name}-${var.environment}"
 }
 
@@ -358,6 +394,36 @@ resource "aws_cloudwatch_event_rule" "alarm_state_change" {
 }
 
 # -----------------------------------------------------------------------------
+# AgentCore Module (Optional)
+# -----------------------------------------------------------------------------
+
+module "agentcore" {
+  source = "./modules/agentcore"
+  count  = var.enable_agentcore ? 1 : 0
+
+  project_name     = var.project_name
+  environment      = var.environment
+  bedrock_model_id = var.bedrock_model_id
+
+  # ECR and Image
+  create_ecr_repository = true
+  image_tag             = var.agentcore_image_tag
+
+  # Runtime
+  deploy_runtime = true
+  network_mode   = "PUBLIC"
+  demo_mode      = var.agentcore_demo_mode
+  demo_scenario  = "crashloop"
+
+  # Gateway and Remediation
+  enable_gateway     = var.agentcore_enable_gateway
+  enable_remediation = var.agentcore_enable_remediation
+
+  # Observability
+  log_retention_days = 30
+}
+
+# -----------------------------------------------------------------------------
 # Outputs
 # -----------------------------------------------------------------------------
 
@@ -384,4 +450,25 @@ output "region" {
 output "estimated_monthly_cost" {
   description = "Estimated monthly cost (USD)"
   value       = "~$5-15 depending on Bedrock usage"
+}
+
+# AgentCore Outputs (when enabled)
+output "agentcore_ecr_repository_url" {
+  description = "ECR repository URL for AgentCore container image"
+  value       = var.enable_agentcore ? module.agentcore[0].ecr_repository_url : null
+}
+
+output "agentcore_runtime_id" {
+  description = "AgentCore Runtime ID"
+  value       = var.enable_agentcore ? module.agentcore[0].agent_runtime_id : null
+}
+
+output "agentcore_runtime_role_arn" {
+  description = "AgentCore Runtime execution role ARN"
+  value       = var.enable_agentcore ? module.agentcore[0].runtime_execution_role_arn : null
+}
+
+output "agentcore_gateway_endpoint" {
+  description = "AgentCore Gateway endpoint URL (if enabled)"
+  value       = var.enable_agentcore && var.agentcore_enable_gateway ? module.agentcore[0].gateway_endpoint : null
 }

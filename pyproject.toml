@@ -59,6 +59,9 @@ dev = [
 live = [
     "kubernetes>=31.0.0",
 ]
+agentcore = [
+    "bedrock-agentcore>=1.0.0",
+]
 
 [project.scripts]
 incident-copilot = "aws_incident_copilot.cli:main"
