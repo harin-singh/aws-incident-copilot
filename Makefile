@@ -66,9 +66,11 @@ security-scan: ## Run security scans (gitleaks, checkov)
 	gitleaks detect --source . --verbose
 	checkov -d terraform/ --framework terraform
 
-deps-audit: ## Audit dependencies for vulnerabilities
-	$(PIP) install pip-audit
-	pip-audit
+deps-audit: ## Audit project dependencies for vulnerabilities
+	$(PYTHON) -m venv .audit-venv
+	.audit-venv/bin/pip install --upgrade pip pip-audit
+	.audit-venv/bin/pip install -e .
+	.audit-venv/bin/pip-audit
 
 # Live mode commands (require AWS credentials)
 live-deploy: ## Deploy infrastructure with Terraform

@@ -96,9 +96,13 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+terraform/.build/
 
 # AWS
 .aws/
+
+# Isolated pip-audit environment
+.audit-venv/
 
 # Local development
 *.local

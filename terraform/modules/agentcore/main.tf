@@ -32,7 +32,7 @@ data "aws_region" "current" {}
 
 locals {
   account_id    = data.aws_caller_identity.current.account_id
-  region        = data.aws_region.current.id
+  region        = data.aws_region.current.region
   name_prefix   = "${var.project_name}-${var.environment}"
   runtime_name  = replace("${local.name_prefix}_runtime", "-", "_")
   gateway_name  = "${local.name_prefix}-gateway"
@@ -134,7 +134,7 @@ resource "aws_iam_role_policy" "runtime_logs" {
   })
 }
 
-# Bedrock model invocation for the agent
+# Bedrock model invocation via cross-region inference profiles
 resource "aws_iam_role_policy" "runtime_bedrock" {
   name = "bedrock-invoke"
   role = aws_iam_role.runtime_execution.id
@@ -143,15 +143,39 @@ resource "aws_iam_role_policy" "runtime_bedrock" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "InferenceProfileAccess"
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+          "bedrock:GetInferenceProfile",
+          "bedrock:ListInferenceProfiles"
+        ]
+        Resource = [
+          "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/${var.bedrock_model_id}",
+          "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/*",
+          "arn:aws:bedrock:${local.region}:${local.account_id}:application-inference-profile/*"
+        ]
+      },
+      {
+        Sid    = "FoundationModelViaProfile"
         Effect = "Allow"
         Action = [
           "bedrock:InvokeModel",
           "bedrock:InvokeModelWithResponseStream"
         ]
         Resource = [
-          "arn:aws:bedrock:${local.region}::foundation-model/${var.bedrock_model_id}",
+          "arn:aws:bedrock:us-east-1::foundation-model/${var.bedrock_foundation_model_id}",
+          "arn:aws:bedrock:us-east-2::foundation-model/${var.bedrock_foundation_model_id}",
+          "arn:aws:bedrock:us-west-2::foundation-model/${var.bedrock_foundation_model_id}",
+          "arn:aws:bedrock:${local.region}::foundation-model/${var.bedrock_foundation_model_id}",
           "arn:aws:bedrock:${local.region}::foundation-model/anthropic.claude-*"
         ]
+        Condition = {
+          StringLike = {
+            "bedrock:InferenceProfileArn" = "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/*"
+          }
+        }
       }
     ]
   })
@@ -241,7 +265,8 @@ resource "aws_iam_role_policy" "runtime_eks_read" {
           "eks:DescribeCluster",
           "eks:ListClusters",
           "eks:DescribeNodegroup",
-          "eks:ListNodegroups"
+          "eks:ListNodegroups",
+          "eks:AccessKubernetesApi"
         ]
         Resource = "*"
       }
@@ -295,11 +320,22 @@ resource "aws_iam_role" "remediation" {
           AWS = aws_iam_role.runtime_execution.arn
         }
         Action = "sts:AssumeRole"
-        Condition = {
-          StringEquals = {
-            "sts:ExternalId" = "incident-copilot-remediation"
-          }
-        }
+        Condition = merge(
+          {
+            ArnEquals = {
+              "aws:PrincipalArn" = aws_iam_role.runtime_execution.arn
+            }
+            StringEquals = {
+              "aws:SourceAccount" = local.account_id
+            }
+          },
+          var.remediation_external_id != null ? {
+            StringEquals = {
+              "aws:SourceAccount" = local.account_id
+              "sts:ExternalId"    = var.remediation_external_id
+            }
+          } : {}
+        )
       }
     ]
   })
@@ -418,6 +454,68 @@ resource "aws_bedrockagentcore_gateway" "main" {
   depends_on = [
     aws_iam_role.gateway
   ]
+}
+
+resource "aws_iam_role_policy" "runtime_assume_remediation" {
+  count = var.enable_remediation ? 1 : 0
+  name  = "assume-remediation"
+  role  = aws_iam_role.runtime_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "sts:AssumeRole"
+        Resource = aws_iam_role.remediation[0].arn
+      }
+    ]
+  })
+}
+
+resource "aws_eks_access_entry" "runtime" {
+  for_each = toset(var.eks_cluster_names)
+
+  cluster_name  = each.value
+  principal_arn = aws_iam_role.runtime_execution.arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "runtime_view" {
+  for_each = toset(var.eks_cluster_names)
+
+  cluster_name  = each.value
+  principal_arn = aws_iam_role.runtime_execution.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.runtime]
+}
+
+resource "aws_eks_access_entry" "remediation" {
+  for_each = var.enable_remediation ? toset(var.eks_cluster_names) : toset([])
+
+  cluster_name  = each.value
+  principal_arn = aws_iam_role.remediation[0].arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "remediation_edit" {
+  for_each = var.enable_remediation ? toset(var.eks_cluster_names) : toset([])
+
+  cluster_name  = each.value
+  principal_arn = aws_iam_role.remediation[0].arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
+
+  access_scope {
+    type       = length(var.eks_remediation_namespaces) > 0 ? "namespace" : "cluster"
+    namespaces = length(var.eks_remediation_namespaces) > 0 ? var.eks_remediation_namespaces : null
+  }
+
+  depends_on = [aws_eks_access_entry.remediation]
 }
 
 # -----------------------------------------------------------------------------
