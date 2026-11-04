@@ -20,7 +20,7 @@ resource "aws_lambda_function" "copilot" {
   filename                       = data.archive_file.copilot_handler.output_path
   source_code_hash               = data.archive_file.copilot_handler.output_base64sha256
   handler                        = "handler.lambda_handler"
-  runtime                        = "python3.11"
+  runtime                        = "python3.12"
   timeout                        = 120
   memory_size                    = 512
   reserved_concurrent_executions = 5

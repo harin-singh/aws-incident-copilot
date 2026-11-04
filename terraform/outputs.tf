@@ -33,6 +33,11 @@ output "region" {
   value       = local.region
 }
 
+output "ecs_cluster_names" {
+  description = "ECS clusters the copilot is expected to investigate"
+  value       = var.ecs_cluster_names
+}
+
 output "bedrock_model_id" {
   description = "Configured Bedrock inference profile ID"
   value       = var.bedrock_model_id

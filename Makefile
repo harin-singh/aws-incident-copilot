@@ -64,13 +64,14 @@ terraform-fmt: ## Format Terraform files
 
 security-scan: ## Run security scans (gitleaks, checkov)
 	gitleaks detect --source . --verbose
-	checkov -d terraform/ --framework terraform
+	checkov --directory terraform --config-file .checkov.yml --framework terraform
 
 deps-audit: ## Audit project dependencies for vulnerabilities
 	$(PYTHON) -m venv .audit-venv
-	.audit-venv/bin/pip install --upgrade pip pip-audit
-	.audit-venv/bin/pip install -e .
-	.audit-venv/bin/pip-audit
+	.audit-venv/bin/pip install --upgrade pip 'setuptools>=84.1.0'
+	.audit-venv/bin/pip install pip-audit==2.10.1
+	.audit-venv/bin/pip install .
+	.audit-venv/bin/pip-audit --skip-editable
 
 # Live mode commands (require AWS credentials)
 live-deploy: ## Deploy infrastructure with Terraform

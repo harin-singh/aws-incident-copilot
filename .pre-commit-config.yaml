@@ -1,3 +1,9 @@
+# Local hooks match CI: same file sets, same Terraform 1.9.8 / -backend=false,
+# and Checkov reads .checkov.yml (the same skip list as the Checkov CI job).
+# Ruff and mypy revisions match the pins in [project.optional-dependencies] dev.
+
+default_stages: [pre-commit]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -5,43 +11,72 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
-        args: [--unsafe]
-      - id: check-json
-      - id: check-toml
-      - id: check-added-large-files
-        args: ['--maxkb=1000']
       - id: check-merge-conflict
       - id: detect-private-key
-      - id: no-commit-to-branch
-        args: ['--branch', 'main']
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.7.4
+    rev: v0.17.3
     hooks:
       - id: ruff
+        name: ruff check
         args: [--fix, --exit-non-zero-on-fix]
+        files: ^(src|tests)/
       - id: ruff-format
+        name: ruff format
+        files: ^(src|tests)/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      - id: mypy
+        name: mypy
+        files: ^src/
+        pass_filenames: false
+        args: [src/]
+        additional_dependencies:
+          - types-PyYAML==6.0.12.20250915
 
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.21.2
+    rev: v8.30.1
     hooks:
       - id: gitleaks
+        name: gitleaks
+        entry: gitleaks detect --source . --verbose --redact
+        pass_filenames: false
 
   - repo: https://github.com/antonbabenko/pre-commit-terraform
-    rev: v1.96.2
+    rev: v1.109.4
     hooks:
       - id: terraform_fmt
-      - id: terraform_validate
+        files: ^terraform/
         args:
+          - --hook-config=--tf-path=terraform
+          - --hook-config=--tool-version=1.9.8
+      - id: terraform_validate
+        files: ^terraform/
+        args:
+          - --hook-config=--tf-path=terraform
+          - --hook-config=--tool-version=1.9.8
           - --hook-config=--retry-once-with-cleanup=true
           - --tf-init-args=-backend=false
+      - id: terraform_tflint
+        files: ^terraform/
+        args:
+          - --hook-config=--tool-version=0.59.1
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
 
-  - repo: local
+  - repo: https://github.com/bridgecrewio/checkov
+    rev: 3.4.3
     hooks:
-      - id: pytest-check
-        name: pytest-check
-        entry: pytest tests/ -x -q --tb=short
-        language: system
+      - id: checkov
+        name: checkov
+        entry: checkov
+        args:
+          - --directory
+          - terraform
+          - --config-file
+          - .checkov.yml
+          - --framework
+          - terraform
+        files: \.tf$
         pass_filenames: false
-        always_run: true
-        stages: [pre-push]

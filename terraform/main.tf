@@ -18,6 +18,10 @@ locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
   bedrock_inference_profile_arn = "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/${var.bedrock_model_id}"
+  ecs_cluster_arns = length(var.ecs_cluster_names) > 0 ? [
+    for name in var.ecs_cluster_names :
+    "arn:aws:ecs:${local.region}:${local.account_id}:cluster/${name}"
+  ] : ["*"]
   bedrock_foundation_model_arns = [
     "arn:aws:bedrock:us-east-1::foundation-model/${var.bedrock_foundation_model_id}",
     "arn:aws:bedrock:us-east-2::foundation-model/${var.bedrock_foundation_model_id}",

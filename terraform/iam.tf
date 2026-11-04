@@ -111,7 +111,6 @@ resource "aws_iam_role_policy" "ecs_read" {
         Sid    = "ECSRead"
         Effect = "Allow"
         Action = [
-          "ecs:DescribeClusters",
           "ecs:DescribeServices",
           "ecs:DescribeTasks",
           "ecs:DescribeTaskDefinition",
@@ -120,6 +119,12 @@ resource "aws_iam_role_policy" "ecs_read" {
           "ecs:ListTasks"
         ]
         Resource = "*"
+      },
+      {
+        Sid      = "ECSDescribeClusters"
+        Effect   = "Allow"
+        Action   = ["ecs:DescribeClusters"]
+        Resource = local.ecs_cluster_arns
       }
     ]
   })

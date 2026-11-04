@@ -162,6 +162,26 @@ pytest tests/e2e -v
 
 Unit tests cover live CloudWatch/ECS via moto, Kubernetes via a fake API, remediation execution, and model grounding. CI coverage floor is 70%.
 
+## Local development
+
+```bash
+python -m venv venv
+source venv/bin/activate
+make install-dev   # package + [dev] extras + git hooks
+make pre-commit    # pre-commit run --all-files
+```
+
+Pinned hooks in `.pre-commit-config.yaml` match CI:
+
+- ruff lint + format on `src/` and `tests/` (`ruff==0.17.3`)
+- mypy on `src/` (`mypy==1.18.2`)
+- gitleaks (`gitleaks detect --source .`)
+- Terraform `fmt` / `validate` / `tflint` on `terraform/` (Terraform 1.9.8, `init -backend=false`)
+- Checkov on `terraform/` via `.checkov.yml` (same skips as the Checkov CI job)
+- trailing-whitespace, end-of-file-fixer, check-yaml, check-merge-conflict, detect-private-key
+
+CI runs `pre-commit run --all-files` with no bypasses.
+
 ## Known limitations
 
 - **Demo model is not Bedrock.** It is a deterministic stub. It does call the real tool implementations and will refuse an RCA if those tools do not return the expected evidence.
