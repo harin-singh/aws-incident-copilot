@@ -3,27 +3,32 @@
 # Copy this file to terraform.tfvars and customize for your environment.
 # NEVER commit terraform.tfvars with sensitive values to git.
 
-# AWS region to deploy resources
-aws_region = "us-west-2"
-
-# Environment name (affects resource naming)
+aws_region  = "us-west-2"
 environment = "dev"
 
-# Bedrock model to use for AI analysis
-# Options: anthropic.claude-3-sonnet-20240229-v1:0, anthropic.claude-3-haiku-20240307-v1:0
-bedrock_model_id = "anthropic.claude-3-sonnet-20240229-v1:0"
+# Cross-region inference profile (not a legacy foundation-model ID)
+bedrock_model_id            = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+bedrock_foundation_model_id = "anthropic.claude-sonnet-4-5-20250929-v1:0"
 
-# EKS clusters to monitor (leave empty if not using EKS)
+# EKS clusters that receive access entries (View for investigation, Edit for remediation)
 eks_cluster_names = [
   # "production-eks",
-  # "staging-eks",
 ]
+eks_remediation_namespaces = ["production"]
 
-# ECS clusters to monitor (leave empty if not using ECS)
+# ECS clusters the copilot is expected to investigate
 ecs_cluster_names = [
   # "production-cluster",
-  # "staging-cluster",
 ]
 
-# SNS topic for alert notifications (optional)
+# Optional: only set for cross-account assume-role. Leave unset in the same account.
+# remediation_external_id = "replace-me-if-cross-account"
+
+# SNS topic for Lambda error alarms (optional)
 # alert_sns_topic_arn = "arn:aws:sns:us-west-2:123456789:incident-alerts"
+
+# AgentCore is optional; the EventBridge -> Lambda path is always created.
+# enable_agentcore             = false
+# agentcore_image_tag          = "0.1.0"
+# agentcore_enable_gateway     = false
+# agentcore_enable_remediation = false

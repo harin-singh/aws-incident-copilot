@@ -194,19 +194,30 @@ class ApprovalHandler:
         return [a.to_dict() for a in self.approval_history]
 
 
-def create_remediation_tools(approval_handler: ApprovalHandler) -> list[Callable[..., Any]]:
-    """Create remediation tools that require approval.
+def create_remediation_tools(
+    approval_handler: ApprovalHandler,
+    backend: Any | None = None,
+    dry_run: bool = False,
+) -> list[Callable[..., Any]]:
+    """Create remediation tools that require approval before execution.
 
-    These tools demonstrate the pattern for implementing remediation
-    actions with human-in-the-loop approval.
+    After approval the action is dispatched to a remediation backend
+    (demo fixture store or live Kubernetes/ECS APIs). Demo backends never
+    return ``executed``.
 
     Args:
         approval_handler: The approval handler to use.
+        backend: Remediation backend. Defaults to the in-memory demo backend.
+        dry_run: If True, backends validate and report what they would change.
 
     Returns:
-        List of tool functions.
+        List of Strands ``@tool`` functions.
     """
     from strands import tool
+
+    from aws_incident_copilot.remediation.backends import DemoRemediationBackend
+
+    remediator = backend or DemoRemediationBackend()
 
     @tool(description="Restart a Kubernetes deployment. Requires human approval.")
     def restart_deployment(
@@ -234,11 +245,9 @@ def create_remediation_tools(approval_handler: ApprovalHandler) -> list[Callable
                 "reason": f"Action {approval.decision.value}: {approval.reason}",
             }
 
-        return {
-            "status": "executed",
-            "action": f"Restarted deployment {name}",
-            "approval": approval.to_dict(),
-        }
+        result = remediator.restart_deployment(name=name, namespace=namespace, dry_run=dry_run)
+        result["approval"] = approval.to_dict()
+        return result
 
     @tool(
         description="Rollback a Kubernetes deployment to previous revision. "
@@ -273,11 +282,14 @@ def create_remediation_tools(approval_handler: ApprovalHandler) -> list[Callable
                 "reason": f"Action {approval.decision.value}: {approval.reason}",
             }
 
-        return {
-            "status": "executed",
-            "action": f"Rolled back deployment {name}",
-            "approval": approval.to_dict(),
-        }
+        result = remediator.rollback_deployment(
+            name=name,
+            namespace=namespace,
+            revision=revision,
+            dry_run=dry_run,
+        )
+        result["approval"] = approval.to_dict()
+        return result
 
     @tool(description="Update ECS service desired count. Requires human approval.")
     def scale_ecs_service(
@@ -308,11 +320,14 @@ def create_remediation_tools(approval_handler: ApprovalHandler) -> list[Callable
                 "reason": f"Action {approval.decision.value}: {approval.reason}",
             }
 
-        return {
-            "status": "executed",
-            "action": f"Scaled {service} to {desired_count} tasks",
-            "approval": approval.to_dict(),
-        }
+        result = remediator.scale_ecs_service(
+            cluster=cluster,
+            service=service,
+            desired_count=desired_count,
+            dry_run=dry_run,
+        )
+        result["approval"] = approval.to_dict()
+        return result
 
     @tool(description="Force new ECS deployment. Requires human approval.")
     def force_ecs_deployment(
@@ -345,10 +360,12 @@ def create_remediation_tools(approval_handler: ApprovalHandler) -> list[Callable
                 "reason": f"Action {approval.decision.value}: {approval.reason}",
             }
 
-        return {
-            "status": "executed",
-            "action": f"Forced new deployment for {service}",
-            "approval": approval.to_dict(),
-        }
+        result = remediator.force_ecs_deployment(
+            cluster=cluster,
+            service=service,
+            dry_run=dry_run,
+        )
+        result["approval"] = approval.to_dict()
+        return result
 
     return [restart_deployment, rollback_deployment, scale_ecs_service, force_ecs_deployment]

@@ -6,7 +6,9 @@ incident copilot in both demo and live modes.
 
 from __future__ import annotations
 
+import json
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
@@ -16,13 +18,9 @@ from rich.table import Table
 
 from aws_incident_copilot import __version__
 from aws_incident_copilot.agents import ApprovalHandler, IncidentCopilot
-from aws_incident_copilot.demo.fixtures import DemoDataProvider
+from aws_incident_copilot.demo.model_stub import UNGROUNDED_MARKER, DemoModelProvider
 from aws_incident_copilot.demo.scenarios import list_scenarios, load_scenario
-from aws_incident_copilot.mcp_servers import (
-    create_cloudwatch_server,
-    create_ecs_server,
-    create_kubernetes_server,
-)
+from aws_incident_copilot.models.incident import Alert
 
 if TYPE_CHECKING:
     from aws_incident_copilot.models.incident import IncidentReport
@@ -35,8 +33,8 @@ console = Console()
 def main() -> None:
     """AWS Incident Copilot - AI-powered incident investigation for AWS.
 
-    Investigates EKS/ECS incidents using MCP tools and proposes fixes
-    with human-in-the-loop approval.
+    Investigates EKS/ECS incidents using MCP-compatible tools and proposes
+    fixes with human-in-the-loop approval.
     """
     pass
 
@@ -62,12 +60,17 @@ def main() -> None:
     default=False,
     help="Suppress verbose output",
 )
-def demo(scenario: str, auto_approve: bool, quiet: bool) -> None:
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="If a remediation is approved, validate it without mutating state",
+)
+def demo(scenario: str, auto_approve: bool, quiet: bool, dry_run: bool) -> None:
     """Run a demo incident investigation.
 
-    This mode uses pre-recorded fixture data and scripted model responses
-    to demonstrate the incident investigation workflow without requiring
-    AWS credentials.
+    Uses fixture data and a scripted model. The model only emits an RCA
+    after investigation tools return the expected evidence.
 
     Available scenarios:
     - crashloop: EKS pod in CrashLoopBackOff due to DB auth failure
@@ -87,8 +90,6 @@ def demo(scenario: str, auto_approve: bool, quiet: bool) -> None:
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
-    demo_provider = DemoDataProvider(scenario=scenario)
-
     approval_handler = ApprovalHandler(
         mode="cli",
         auto_approve=auto_approve,
@@ -99,28 +100,34 @@ def demo(scenario: str, auto_approve: bool, quiet: bool) -> None:
         scenario=scenario,
         approval_handler=approval_handler,
         verbose=verbose,
+        dry_run=dry_run,
     )
 
-    cw_server = create_cloudwatch_server(demo_mode=True, demo_provider=demo_provider)
-    k8s_server = create_kubernetes_server(demo_mode=True, demo_provider=demo_provider)
-    ecs_server = create_ecs_server(demo_mode=True, demo_provider=demo_provider)
-
-    mcp_tools = _collect_mcp_tools([cw_server, k8s_server, ecs_server])
-
-    report = copilot.investigate(
-        alert=scenario_data.alert,
-        mcp_tools=mcp_tools,
-    )
+    report = copilot.investigate(alert=scenario_data.alert)
 
     if verbose:
         _print_report(report)
+
+    summary = report.summary or ""
+    if UNGROUNDED_MARKER in summary:
+        console.print(
+            "[red]Demo failed:[/red] the model refused to emit an RCA because "
+            "investigation tools did not return expected evidence."
+        )
+        sys.exit(2)
+
+    if isinstance(copilot.model, DemoModelProvider) and copilot.model.grounded is False:
+        console.print("[red]Demo failed:[/red] investigation was not grounded in tool output.")
+        sys.exit(2)
 
     if verbose:
         console.print()
         console.print("[bold green]Demo complete![/bold green]")
         console.print()
-        console.print("[dim]This was a demonstration using pre-recorded data.")
-        console.print("In live mode, the copilot would query actual AWS resources.[/dim]")
+        console.print(
+            "[dim]This run used fixture data. Investigation tools were invoked "
+            "against the demo backend; remediations are simulated after approval.[/dim]"
+        )
 
 
 @main.command()
@@ -181,32 +188,90 @@ def scenarios() -> None:
     help="Kubernetes namespace",
 )
 @click.option(
-    "--alert-id",
-    help="Alert ID to investigate",
+    "--alert-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="JSON file containing an Alert payload (required for live mode)",
+)
+@click.option(
+    "--kubeconfig",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Kubeconfig path for live Kubernetes investigation/remediation",
+)
+@click.option(
+    "--remediation-role-arn",
+    help="IAM role to assume before executing remediations",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Validate remediations without applying them",
+)
+@click.option(
+    "--auto-approve",
+    is_flag=True,
+    default=False,
+    help="Auto-approve remediation actions (for testing)",
 )
 def run(
     mode: str,
     region: str,
     cluster: str | None,
     namespace: str,
-    alert_id: str | None,
+    alert_file: Path | None,
+    kubeconfig: Path | None,
+    remediation_role_arn: str | None,
+    dry_run: bool,
+    auto_approve: bool,
 ) -> None:
     """Run the incident copilot.
 
-    In demo mode, uses pre-recorded data. In live mode, requires AWS
-    credentials and queries actual AWS resources.
+    Demo mode uses fixture data. Live mode requires AWS credentials (and a
+    kubeconfig for EKS) plus ``--alert-file``.
     """
     _print_banner()
 
-    if mode == "live":
-        console.print("[yellow]Live mode not yet fully implemented.[/yellow]")
-        console.print("Use demo mode to see the incident copilot in action.")
-        console.print()
-        console.print("[dim]Run: incident-copilot demo --scenario crashloop[/dim]")
-        sys.exit(0)
+    if mode == "demo":
+        console.print(
+            "[dim]Starting in demo mode. Prefer: incident-copilot demo --scenario <name>[/dim]"
+        )
+        ctx = click.get_current_context()
+        ctx.invoke(
+            demo, scenario="crashloop", auto_approve=auto_approve, quiet=False, dry_run=dry_run
+        )
+        return
 
-    console.print("[dim]Starting in demo mode...[/dim]")
-    console.print("[dim]Run 'incident-copilot demo --scenario <name>' for specific scenarios[/dim]")
+    if alert_file is None:
+        console.print(
+            "[red]Live mode requires --alert-file pointing at an Alert JSON document.[/red]"
+        )
+        sys.exit(1)
+
+    try:
+        payload = json.loads(alert_file.read_text())
+        alert = Alert.model_validate(payload)
+    except Exception as exc:
+        console.print(f"[red]Failed to load alert file:[/red] {exc}")
+        sys.exit(1)
+
+    if cluster and not alert.cluster:
+        alert.cluster = cluster
+    if namespace and not alert.namespace:
+        alert.namespace = namespace
+    if region:
+        alert.region = region
+
+    copilot = IncidentCopilot(
+        demo_mode=False,
+        approval_handler=ApprovalHandler(mode="cli", auto_approve=auto_approve),
+        verbose=True,
+        region=region,
+        kubeconfig_path=str(kubeconfig) if kubeconfig else None,
+        remediation_role_arn=remediation_role_arn,
+        dry_run=dry_run,
+    )
+    report = copilot.investigate(alert=alert)
+    _print_report(report)
 
 
 @main.command()
@@ -246,23 +311,9 @@ def _print_report(report: IncidentReport) -> None:
     console.print()
 
     if report.summary:
-        console.print(report.summary)
+        console.print(report.summary, markup=False)
     else:
         console.print("[dim]No summary generated[/dim]")
-
-
-def _collect_mcp_tools(servers: list) -> list:
-    """Collect tools from MCP servers.
-
-    For demo mode, we directly collect the tool functions from
-    the MCP servers rather than connecting via transport.
-    """
-    tools = []
-    for server in servers:
-        for tool_name in server._tool_manager._tools:
-            tool_func = server._tool_manager._tools[tool_name]
-            tools.append(tool_func.fn)
-    return tools
 
 
 if __name__ == "__main__":

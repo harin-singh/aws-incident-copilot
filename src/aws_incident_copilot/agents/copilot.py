@@ -18,7 +18,18 @@ from aws_incident_copilot.agents.approval import ApprovalHandler, create_remedia
 from aws_incident_copilot.demo.fixtures import DemoDataProvider
 from aws_incident_copilot.demo.model_stub import DemoModelProvider
 from aws_incident_copilot.models.incident import Alert, IncidentReport
+from aws_incident_copilot.remediation.backends import create_remediation_backend
 from aws_incident_copilot.runbooks.library import RunbookLibrary, search_runbooks
+from aws_incident_copilot.tools import InvestigationContext, collect_investigation_tools
+
+
+def _tool_name(tool: Any) -> str | None:
+    """Return a Strands tool name when available."""
+    name = getattr(tool, "tool_name", None)
+    if name:
+        return str(name)
+    fn_name = getattr(tool, "__name__", None)
+    return str(fn_name) if fn_name else None
 
 
 class IncidentCopilot:
@@ -39,6 +50,13 @@ class IncidentCopilot:
         model: Model | None = None,
         approval_handler: ApprovalHandler | None = None,
         verbose: bool = True,
+        region: str = "us-west-2",
+        kubeconfig_path: str | None = None,
+        remediation_role_arn: str | None = None,
+        remediation_external_id: str | None = None,
+        dry_run: bool = False,
+        investigation_ctx: InvestigationContext | None = None,
+        remediator: Any | None = None,
     ):
         """Initialize the incident copilot.
 
@@ -48,11 +66,20 @@ class IncidentCopilot:
             model: Custom model to use. If None and demo_mode, uses stub.
             approval_handler: Handler for remediation approvals.
             verbose: If True, print progress to console.
+            region: AWS region for live clients.
+            kubeconfig_path: Optional kubeconfig for live Kubernetes access.
+            remediation_role_arn: Optional IAM role assumed before remediations.
+            remediation_external_id: Optional ExternalId for that assume-role.
+            dry_run: If True, remediations validate without mutating.
+            investigation_ctx: Injected tool context (tests).
+            remediator: Injected remediation backend (tests).
         """
         self.demo_mode = demo_mode
         self.scenario = scenario
         self.verbose = verbose
         self.console = Console()
+        self.region = region
+        self.dry_run = dry_run
 
         self.approval_handler = approval_handler or ApprovalHandler(
             mode="cli" if not demo_mode else "auto",
@@ -66,18 +93,37 @@ class IncidentCopilot:
             self.model = model
             self.demo_provider = None
 
+        self.investigation_ctx = investigation_ctx or InvestigationContext(
+            demo_mode=demo_mode,
+            demo_provider=self.demo_provider,
+            region=region,
+            kubeconfig_path=kubeconfig_path,
+        )
+        self.remediator = remediator or create_remediation_backend(
+            demo_mode=demo_mode,
+            demo_provider=self.demo_provider,
+            kubeconfig_path=kubeconfig_path,
+            remediation_role_arn=remediation_role_arn,
+            external_id=remediation_external_id,
+            region=region,
+        )
+
         self.runbook_library = RunbookLibrary()
         self._tools = self._create_tools()
         self._agent: Agent | None = None
 
     def _create_tools(self) -> list[Any]:
         """Create the tools for the agent."""
-        tools = []
-
+        tools: list[Any] = []
+        tools.extend(collect_investigation_tools(self.investigation_ctx))
         tools.append(self._create_runbook_search_tool())
-
-        tools.extend(create_remediation_tools(self.approval_handler))
-
+        tools.extend(
+            create_remediation_tools(
+                self.approval_handler,
+                backend=self.remediator,
+                dry_run=self.dry_run,
+            )
+        )
         return tools
 
     def _create_runbook_search_tool(self) -> Any:
@@ -98,9 +144,16 @@ class IncidentCopilot:
 
         return search_runbooks_tool
 
-    def _create_agent(self, mcp_tools: list[Any]) -> Agent:
-        """Create the Strands agent."""
-        all_tools = mcp_tools + self._tools
+    def _create_agent(self, extra_tools: list[Any] | None = None) -> Agent:
+        """Create the Strands agent with registered investigation tools."""
+        all_tools = list(self._tools)
+        if extra_tools:
+            existing = {_tool_name(t) for t in all_tools}
+            for extra in extra_tools:
+                name = _tool_name(extra)
+                if name and name in existing:
+                    continue
+                all_tools.append(extra)
 
         system_prompt = SYSTEM_PROMPT
 
@@ -136,7 +189,7 @@ class IncidentCopilot:
         if self.verbose:
             self._print_alert(alert)
 
-        agent = self._create_agent(mcp_tools or [])
+        agent = self._create_agent(mcp_tools)
 
         investigation_prompt = self._create_investigation_prompt(alert)
 
@@ -193,7 +246,7 @@ class IncidentCopilot:
         Returns:
             Dictionary with investigation results.
         """
-        agent = self._create_agent(mcp_tools or [])
+        agent = self._create_agent(mcp_tools)
 
         response = agent(prompt)
 
