@@ -57,9 +57,9 @@ variable "container_image_uri" {
 }
 
 variable "image_tag" {
-  description = "Docker image tag to use"
+  description = "Immutable Docker image tag to pull from ECR"
   type        = string
-  default     = "latest"
+  default     = "0.1.0"
 }
 
 # Runtime Configuration

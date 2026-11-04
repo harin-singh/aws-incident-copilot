@@ -28,6 +28,7 @@ ecs_cluster_names = [
 # alert_sns_topic_arn = "arn:aws:sns:us-west-2:123456789:incident-alerts"
 
 # AgentCore is optional; the EventBridge -> Lambda path is always created.
-# enable_agentcore            = false
-# agentcore_enable_gateway    = false
+# enable_agentcore             = false
+# agentcore_image_tag          = "0.1.0"
+# agentcore_enable_gateway     = false
 # agentcore_enable_remediation = false

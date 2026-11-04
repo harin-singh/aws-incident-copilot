@@ -66,9 +66,9 @@ variable "enable_agentcore" {
 }
 
 variable "agentcore_image_tag" {
-  description = "Docker image tag for AgentCore deployment"
+  description = "Immutable Docker image tag for AgentCore (do not use latest; ECR tags are immutable)"
   type        = string
-  default     = "latest"
+  default     = "0.1.0"
 }
 
 variable "agentcore_demo_mode" {

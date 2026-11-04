@@ -13,6 +13,7 @@ resource "aws_sqs_queue" "copilot_dlq" {
 #checkov:skip=CKV_AWS_117:Lambda stays out of VPC to match the public AgentCore default
 #checkov:skip=CKV_AWS_173:Environment variables do not contain secrets; KMS is optional
 #checkov:skip=CKV_AWS_116:DLQ is attached via dead_letter_config
+#checkov:skip=CKV_AWS_272:Code signing needs an AWS Signer profile and would reject this unsigned archive_file zip
 resource "aws_lambda_function" "copilot" {
   function_name                  = "${local.name_prefix}-handler"
   role                           = aws_iam_role.incident_copilot.arn

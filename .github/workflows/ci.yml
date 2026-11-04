@@ -74,12 +74,11 @@ jobs:
 
       - name: Audit project dependencies
         run: |
-          python -m pip install --upgrade pip
           python -m venv .audit-venv
-          .audit-venv/bin/pip install --upgrade pip
-          .audit-venv/bin/pip install pip-audit
-          .audit-venv/bin/pip install -e .
-          .audit-venv/bin/pip-audit
+          .audit-venv/bin/pip install --upgrade pip 'setuptools>=84.1.0'
+          .audit-venv/bin/pip install pip-audit==2.10.1
+          .audit-venv/bin/pip install .
+          .audit-venv/bin/pip-audit --skip-editable
 
   terraform-validate:
     name: Terraform Validate
@@ -117,7 +116,7 @@ jobs:
           framework: terraform
           soft_fail: false
           output_format: cli
-          skip_check: CKV_AWS_158,CKV_AWS_144,CKV_AWS_145,CKV_AWS_338,CKV_AWS_355,CKV_AWS_117,CKV_AWS_173,CKV_AWS_356
+          skip_check: CKV_AWS_158,CKV_AWS_144,CKV_AWS_145,CKV_AWS_338,CKV_AWS_355,CKV_AWS_117,CKV_AWS_173,CKV_AWS_356,CKV_AWS_272
 
   demo-e2e:
     name: Demo E2E

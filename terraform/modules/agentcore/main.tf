@@ -44,18 +44,68 @@ locals {
 # ECR Repository
 # -----------------------------------------------------------------------------
 
+resource "aws_kms_key" "ecr" {
+  count = var.create_ecr_repository ? 1 : 0
+
+  description             = "Customer-managed key for ${local.ecr_repo_name} ECR encryption"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccountAdministration"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${local.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowECRService"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecr.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey",
+          "kms:CreateGrant",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "ecr.${local.region}.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_kms_alias" "ecr" {
+  count = var.create_ecr_repository ? 1 : 0
+
+  name          = "alias/${local.ecr_repo_name}"
+  target_key_id = aws_kms_key.ecr[0].key_id
+}
+
 resource "aws_ecr_repository" "agent" {
   count = var.create_ecr_repository ? 1 : 0
 
   name                 = local.ecr_repo_name
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
     scan_on_push = true
   }
 
   encryption_configuration {
-    encryption_type = "AES256"
+    encryption_type = "KMS"
+    kms_key         = aws_kms_key.ecr[0].arn
   }
 }
 
@@ -281,24 +331,37 @@ resource "aws_iam_role_policy" "runtime_ecr" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:BatchGetImage",
-          "ecr:BatchCheckLayerAvailability"
-        ]
-        Resource = var.create_ecr_repository ? aws_ecr_repository.agent[0].arn : "arn:aws:ecr:${local.region}:${local.account_id}:repository/${local.ecr_repo_name}"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ecr:GetAuthorizationToken"
-        ]
-        Resource = "*"
-      }
-    ]
+    Statement = concat(
+      [
+        {
+          Effect = "Allow"
+          Action = [
+            "ecr:GetDownloadUrlForLayer",
+            "ecr:BatchGetImage",
+            "ecr:BatchCheckLayerAvailability"
+          ]
+          Resource = var.create_ecr_repository ? aws_ecr_repository.agent[0].arn : "arn:aws:ecr:${local.region}:${local.account_id}:repository/${local.ecr_repo_name}"
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "ecr:GetAuthorizationToken"
+          ]
+          Resource = "*"
+        }
+      ],
+      var.create_ecr_repository ? [
+        {
+          Sid    = "DecryptEcrImages"
+          Effect = "Allow"
+          Action = [
+            "kms:Decrypt",
+            "kms:DescribeKey"
+          ]
+          Resource = aws_kms_key.ecr[0].arn
+        }
+      ] : []
+    )
   })
 }
 

@@ -149,7 +149,8 @@ aws bedrock-agentcore invoke-agent-runtime \
 
 - Investigation is read-only. Writes go through the remediation role after approval.
 - Prompt text tells the model to treat log bodies as untrusted.
-- Documented Checkov skips: `CKV_AWS_355` (Describe/List on `*`), `CKV_AWS_158` / `CKV_AWS_338` (optional log KMS / 30-day retention), `CKV_AWS_117` / `CKV_AWS_173` (Lambda not in VPC, env vars are not secrets).
+- Documented Checkov skips: `CKV_AWS_355` / `CKV_AWS_356` (Describe/List and ECR auth on `*`), `CKV_AWS_158` / `CKV_AWS_338` (optional log KMS / 30-day retention), `CKV_AWS_117` / `CKV_AWS_173` (Lambda not in VPC, env vars are not secrets), `CKV_AWS_272` (Lambda code signing would reject the unsigned `archive_file` zip), `CKV_AWS_144` / `CKV_AWS_145` (S3 cross-region / KMS controls unused by this stack).
+- AgentCore ECR uses immutable tags and a customer-managed KMS key with rotation. Push a versioned tag (default `0.1.0`), not `latest`.
 
 ## Testing
 
