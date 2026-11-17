@@ -26,3 +26,6 @@ override.tf.json
 # CLI configuration
 .terraformrc
 terraform.rc
+
+# Packaged Lambda zip
+.build/

@@ -94,8 +94,9 @@ class TestRemediationTools:
             namespace="production",
         )
 
-        assert result["status"] == "executed"
-        assert "Restarted deployment" in result["action"]
+        assert result["status"] == "simulated"
+        assert result["backend"] == "demo"
+        assert "restart" in result["action"].lower()
         assert result["approval"]["decision"] == "approved"
 
     def test_restart_deployment_denied(self, deny_tools):
@@ -120,8 +121,8 @@ class TestRemediationTools:
             revision=5,
         )
 
-        assert result["status"] == "executed"
-        assert "Rolled back" in result["action"]
+        assert result["status"] == "simulated"
+        assert "rollback" in result["action"].lower()
 
     def test_scale_ecs_service_approved(self, tools):
         """Test ECS service scaling with approval."""
@@ -133,8 +134,8 @@ class TestRemediationTools:
             desired_count=10,
         )
 
-        assert result["status"] == "executed"
-        assert "Scaled" in result["action"]
+        assert result["status"] == "simulated"
+        assert "scale" in result["action"].lower()
 
     def test_force_ecs_deployment_approved(self, tools):
         """Test force ECS deployment with approval."""
@@ -145,5 +146,5 @@ class TestRemediationTools:
             service="api-service",
         )
 
-        assert result["status"] == "executed"
-        assert "Forced new deployment" in result["action"]
+        assert result["status"] == "simulated"
+        assert "force" in result["action"].lower() or "deployment" in result["action"].lower()

@@ -4,143 +4,220 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-A Strands Agents + Amazon Bedrock agent that investigates EKS and ECS incidents with MCP tools, writes a structured report, and proposes remediations that do not run until a human approves them.
-
 I built this because most of my incident time went into the same first fifteen minutes: pull logs, check events, match a runbook, draft a fix. The agent does that loop. It does not push a change without you.
 
-## What it does
+CLI and optional AgentCore runtime that investigates EKS, ECS, and CloudWatch incidents with Strands tools, then proposes remediations that require human approval before they run.
 
-1. Takes an alert (CrashLoopBackOff, ECS OOM, ALB 5xx, or a custom payload).
-2. Queries CloudWatch, Kubernetes, and ECS through three MCP servers.
-3. Searches a small runbook library with keyword matching.
-4. Returns a report: timeline, evidence, root cause, confidence, and proposed actions.
-5. Waits for approval before any remediation command runs.
+## What actually works
 
-Demo mode uses fixture data and a scripted model stub, so you can run the full flow with no AWS credentials.
+A clone + `make demo` (or `python -m aws_incident_copilot.cli demo --scenario <name>`) does the following offline, with no AWS credentials:
+
+1. Registers CloudWatch, Kubernetes, and ECS investigation tools as Strands `@tool` wrappers.
+2. Runs a scripted model that **calls those tools** against fixture data for the chosen scenario.
+3. Emits a root-cause write-up only if the tool results contain the expected evidence. If tools fail or return nothing useful, the run is marked `UNGROUNDED` and the CLI exits non-zero.
+4. Remediation tools still require approval. After approval they execute against an in-memory demo backend and return `simulated` or `dry_run` — never `executed` for a no-op.
+
+Live mode (`incident-copilot run --mode live --alert-file alert.json`) uses boto3 and the Kubernetes client. That path is implemented and unit-tested with moto / a fake k8s API. It is not exercised by CI against a real account.
 
 ## Architecture
 
-### Local / CLI
-
 ```mermaid
 flowchart TB
-    subgraph Alerts["Alert sources"]
-        CW[CloudWatch Alarm]
-        SNS[SNS Topic]
-        EB[EventBridge]
+    subgraph Triggers
+        CLI[CLI demo / run]
+        EB[EventBridge alarm rule]
     end
 
-    subgraph Agent["Incident copilot"]
-        SA[Strands Agent + Bedrock]
+    subgraph Copilot
+        SA[Strands Agent]
+        STUB[Demo model stub or Bedrock]
         HITL[Approval handler]
+        RB[Keyword runbook search]
     end
 
-    subgraph MCP["MCP tool servers"]
-        CWT[CloudWatch]
-        K8S[Kubernetes]
-        ECS[ECS]
+    subgraph Tools
+        CWT[CloudWatch tools]
+        K8S[Kubernetes tools]
+        ECS[ECS tools]
+        REM[Remediation tools]
     end
 
-    subgraph KB["Knowledge"]
-        RB[Runbook library]
+    subgraph Backends
+        FIX[Demo fixtures]
+        AWS[CloudWatch / ECS APIs]
+        EKS[EKS API via access entry]
+        DEMOREM[Demo remediator]
+        LIVEREM[Remediation role]
     end
 
-    CW --> Agent
-    SNS --> Agent
-    EB --> Agent
-    SA <--> MCP
-    SA <--> KB
+    CLI --> SA
+    EB --> LAMBDA[Lambda handler]
+    LAMBDA -->|optional| AC[AgentCore runtime]
+    LAMBDA --> SA
+    SA --> STUB
+    SA --> CWT
+    SA --> K8S
+    SA --> ECS
+    SA --> RB
     SA --> HITL
-    HITL --> Report[Incident report]
-    HITL -->|Approved| ACT[kubectl / aws cli]
+    HITL --> REM
+    CWT -->|demo| FIX
+    K8S -->|demo| FIX
+    ECS -->|demo| FIX
+    CWT -->|live| AWS
+    ECS -->|live| AWS
+    K8S -->|live| EKS
+    REM -->|demo| DEMOREM
+    REM -->|live after approval| LIVEREM
+    LIVEREM --> EKS
+    LIVEREM --> AWS
 ```
 
-### AgentCore deployment (optional)
+### Trigger path
 
-```mermaid
-flowchart TB
-    Client[HTTPS client] --> RT[AgentCore Runtime ARM64]
-    RT --> EP[BedrockAgentCoreApp entrypoint]
-    EP --> SA[Strands Agent + Bedrock]
-    SA <--> RB[Runbooks]
-    SA -->|Invoke| BR[Bedrock models]
-    GW[AgentCore Gateway] -.->|MCP tools| CW[CloudWatch]
-    GW -.-> K8S[EKS]
-    GW -.-> ECS[ECS]
-```
+Terraform creates an EventBridge rule on CloudWatch alarm state changes and attaches a Lambda target. The Lambda parses the event and either:
 
-Terraform for AgentCore sits behind `enable_agentcore = false` by default. Gateway tool targets that need per-tool Lambdas are documented but not shipped yet.
+- invokes an AgentCore runtime when `AGENTCORE_RUNTIME_ARN` is set, or
+- runs `IncidentCopilot` in-process when the package is on the image/layer.
 
-## Quick start
+The zip artifact is a thin invoker. Full in-process investigation needs the container image (same image AgentCore uses) or a layer that includes this package.
+
+## Demo
+
+Needs **Python 3.11+**. On macOS, `python3` is often still 3.9 from Command Line Tools — use `python3.12` (or 3.11) for the venv.
 
 ```bash
 git clone https://github.com/harin-singh/aws-incident-copilot.git
 cd aws-incident-copilot
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
-# or: make install-dev
+python -m pip install --upgrade pip
+make install-dev
 
 make demo
-# scenarios: crashloop | oom | alb-5xx
+# or
 python -m aws_incident_copilot.cli demo --scenario crashloop
+python -m aws_incident_copilot.cli demo --scenario oom
+python -m aws_incident_copilot.cli demo --scenario alb-5xx
 python -m aws_incident_copilot.cli scenarios
 ```
 
-Needs Python 3.11+. Live mode needs AWS credentials and Bedrock model access in the region you use.
+| Scenario | Tools the stub calls | Evidence the RCA requires |
+|----------|----------------------|---------------------------|
+| `crashloop` | `describe_pod`, `get_events`, `get_pod_logs`, `describe_deployment`, `describe_alarms` | `CrashLoopBackOff`, `password authentication failed` |
+| `oom` | `describe_service`, `describe_stopped_tasks`, `get_metrics`, `describe_task_definition`, `query_logs` | `137`, `OutOfMemory` |
+| `alb-5xx` | `get_metrics`, `query_logs`, `describe_alarms` | `Too many connections`, `HTTPCode_Target_5XX` |
 
-## Design choices
+CI runs every scenario through the CLI and fails on `tool not found`, `UNGROUNDED`, a traceback, or a crash.
 
-- Separate IAM roles for investigation (read-only) and remediation. Remediation stays off unless you turn it on.
-- Log and event content is treated as untrusted input so a poisoned log line cannot become a command.
-- Keyword runbook search first. It is deterministic and easy to test. Semantic search with Bedrock Knowledge Bases is on the roadmap.
-- Approval is CLI-only today. Slack and Step Functions are not wired yet.
-- MCP keeps the tools swappable: fixtures in demo mode, boto3/kubectl in live mode, AgentCore Gateway later.
+Dummy data lives in the repo:
 
-## Tests and CI
+- `src/aws_incident_copilot/demo/scenarios.py` — fake alerts
+- `src/aws_incident_copilot/demo/fixtures.py` — fake CloudWatch / Kubernetes / ECS responses
+- `src/aws_incident_copilot/demo/model_stub.py` — scripted tool calls and the written report
 
-```bash
-make test
-make test-cov
-pytest tests/unit -v
-```
+## Remediation
 
-GitHub Actions runs ruff, mypy, pytest, gitleaks, checkov, and pip-audit on every push to main. The badge above points at that workflow.
+After approval:
 
-## Deploy and cost
+- **Demo**: mutates an in-memory store and returns `status=simulated` (or `dry_run`).
+- **Live Kubernetes**: patches the deployment (`restartedAt` annotation) or rolls back to a previous ReplicaSet. Use `--dry-run` to validate only.
+- **Live ECS**: `UpdateService` for desired count or `forceNewDeployment`, optionally after `sts:AssumeRole` onto the remediation role.
 
-Local/CLI with light use: roughly $5–15 per month (CloudWatch queries + Bedrock tokens).
+Denied actions return `status=not_executed`.
 
-AgentCore with about 100 investigations per month and 30-second sessions: roughly $15–50 per month in us-west-2. Assumptions are in the Terraform docs.
+## Terraform
 
 ```bash
 cd terraform
 cp variables.tfvars.example terraform.tfvars
 terraform init
 terraform plan
-terraform apply
-# teardown
-terraform destroy
 ```
 
-Set `enable_agentcore = true` only after you have an ARM64 image in the ECR repo Terraform creates. See the Terraform README for the build and push steps.
+What the root module creates:
 
-## Limits
+- Investigation role assumed by Lambda, with read APIs plus Bedrock **inference profile** invoke.
+- Remediation role assumable only by the investigation role. Same-account trust uses `aws:PrincipalArn` / `aws:SourceAccount`. `remediation_external_id` is optional and intended for cross-account use.
+- EventBridge rule → Lambda (`incident-copilot-<env>-handler`) with a DLQ.
+- EKS access entries when `eks_cluster_names` is set: `AmazonEKSViewPolicy` for investigation, `AmazonEKSEditPolicy` (namespace-scoped by default) for remediation.
+- Optional AgentCore module (`enable_agentcore = true`), which requires AWS provider `>= 6.18.0`.
 
-- Live Bedrock calls need model access; demo mode does not call Bedrock.
-- Runbook search is keyword-only.
-- Approval is CLI-only.
-- Remediation execution is stubbed in demo mode.
-- AgentCore Gateway MCP tool Lambdas are documented, not implemented.
-- This has been exercised in CI and demo mode. It has not been run as a production pager duty bot on a live multi-account estate.
+Default model id is the US geographic inference profile `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. IAM allows that profile plus the foundation-model ARNs in `us-east-1`, `us-east-2`, and `us-west-2`. Enable model access in those regions before using live Bedrock.
 
-## What I'd change next
+### AgentCore (optional)
 
-- TODO: semantic runbook search with Bedrock Knowledge Bases
-- TODO: Slack (or similar) approval instead of CLI-only
-- TODO: ship the Gateway Lambda adapters for the three MCP servers
-- TODO: wire PagerDuty or OpsGenie as an alert source
-- TODO: (your call) multi-cluster discovery and a tagged `v0.1.0` release
+Build and push the ARM64 image, set `enable_agentcore = true`, then apply. Invoke with:
+
+```bash
+aws bedrock-agentcore invoke-agent-runtime \
+  --agent-runtime-arn "$(terraform output -raw agentcore_runtime_arn)" \
+  --payload '{"alert_type":"eks-crashloop","title":"Pod CrashLoopBackOff"}' \
+  --region us-west-2
+```
+
+## Security notes
+
+- Investigation is read-only. Writes go through the remediation role after approval.
+- Prompt text tells the model to treat log bodies as untrusted.
+- Documented Checkov skips: `CKV_AWS_355` / `CKV_AWS_356` (Describe/List and ECR auth on `*`), `CKV_AWS_158` / `CKV_AWS_338` (optional log KMS / 30-day retention), `CKV_AWS_117` / `CKV_AWS_173` (Lambda not in VPC, env vars are not secrets), `CKV_AWS_272` (Lambda code signing would reject the unsigned `archive_file` zip), `CKV_AWS_144` / `CKV_AWS_145` (S3 cross-region / KMS controls unused by this stack).
+- AgentCore ECR uses immutable tags and a customer-managed KMS key with rotation. Push a versioned tag (default `0.1.0`), not `latest`.
+
+## Testing
+
+```bash
+make test
+make test-cov
+pytest tests/e2e -v
+```
+
+Unit tests cover live CloudWatch/ECS via moto, Kubernetes via a fake API, remediation execution, and model grounding. CI coverage floor is 70%.
+
+## Local development
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+make install-dev   # package + [dev] extras + git hooks
+make pre-commit    # pre-commit run --all-files
+```
+
+Pinned hooks in `.pre-commit-config.yaml` match CI:
+
+- ruff lint + format on `src/` and `tests/` (`ruff==0.17.3`)
+- mypy on `src/` (`mypy==1.18.2`)
+- gitleaks (`gitleaks detect --source .`)
+- Terraform `fmt` / `validate` / `tflint` on `terraform/` (Terraform 1.9.8, `init -backend=false`)
+- Checkov on `terraform/` via `.checkov.yml` (same skips as the Checkov CI job)
+- trailing-whitespace, end-of-file-fixer, check-yaml, check-merge-conflict, detect-private-key
+
+CI runs `pre-commit run --all-files` with no bypasses.
+
+## Known limitations
+
+- **Demo model is not Bedrock.** It is a deterministic stub. It does call the real tool implementations and will refuse an RCA if those tools do not return the expected evidence.
+- **Live Bedrock is opt-in.** `run --mode live` requires credentials, model access on the inference profile, and `--alert-file`. CI does not call AWS.
+- **Runbook search is keyword matching**, not a Bedrock Knowledge Base.
+- **Approval is CLI-only.** No Slack or Step Functions waiter.
+- **Lambda zip is an invoker**, not a full copy of the agent. In-process investigation from EventBridge needs the container image or a layer.
+- **EKS RBAC is access-entry based** (`AmazonEKSViewPolicy` / `AmazonEKSEditPolicy`). There is no custom Role YAML. Empty `eks_cluster_names` creates no access entries.
+- **ECS writes are tag-gated** (`AllowIncidentCopilot=true`). Untagged services are denied by IAM even after approval.
+- **Cross-region inference** needs foundation-model access in every destination region of the geographic profile.
+
+## Project layout
+
+```
+src/aws_incident_copilot/
+  agents/          # Copilot + approval
+  tools/           # Strands @tool implementations
+  remediation/     # Demo + live backends
+  mcp_servers/     # MCP wrappers over the same impls (AgentCore Gateway)
+  demo/            # Fixtures and grounded model stub
+  lambda_handler.py
+  cli.py
+terraform/         # IAM, EventBridge -> Lambda, EKS access, optional AgentCore
+tests/
+```
 
 ## License
 

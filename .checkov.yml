@@ -1,0 +1,19 @@
+# Shared by the Checkov CI job and the pre-commit checkov hook.
+# Skip reasons are documented in README Security notes.
+compact: false
+directory:
+  - terraform
+framework:
+  - terraform
+quiet: false
+soft-fail: false
+skip-check:
+  - CKV_AWS_158
+  - CKV_AWS_144
+  - CKV_AWS_145
+  - CKV_AWS_338
+  - CKV_AWS_355
+  - CKV_AWS_117
+  - CKV_AWS_173
+  - CKV_AWS_356
+  - CKV_AWS_272

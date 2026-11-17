@@ -1,7 +1,9 @@
 """Demo model provider that returns scripted responses.
 
-This module provides a model stub that can be used instead of Bedrock
-for demo mode, enabling the agent to run without AWS credentials.
+The stub drives a fixed tool-call sequence so the demo is deterministic.
+The final RCA is emitted only after the conversation contains the expected
+tool results. If tools were rejected or returned no evidence, the stub
+refuses to print a canned root cause.
 """
 
 import json
@@ -17,18 +19,90 @@ from strands.types.tools import ToolSpec
 
 T = TypeVar("T", bound=BaseModel)
 
+UNGROUNDED_MARKER = "UNGROUNDED"
+
+# Evidence that must appear in tool results (not the alert text) before RCA.
+REQUIRED_EVIDENCE: dict[str, list[str]] = {
+    "crashloop": ["CrashLoopBackOff", "password authentication failed"],
+    "oom": ["137", "OutOfMemory"],
+    "alb-5xx": ["Too many connections", "HTTPCode_Target_5XX"],
+}
+
+TOOL_FAILURE_MARKERS = (
+    "tool not found",
+    "unrecognized tool specification",
+    "tool_name=",
+)
+
+
+def extract_tool_result_text(messages: list[Any] | None) -> str:
+    """Flatten tool-result payloads from a Strands message list."""
+    if not messages:
+        return ""
+    chunks: list[str] = []
+    for message in messages:
+        content = (
+            message.get("content")
+            if isinstance(message, dict)
+            else getattr(message, "content", None)
+        )
+        if not content:
+            continue
+        if isinstance(content, str):
+            chunks.append(content)
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            result = block.get("toolResult")
+            if result is None:
+                continue
+            status = str(result.get("status", ""))
+            if status:
+                chunks.append(status)
+            for item in result.get("content") or []:
+                if isinstance(item, dict):
+                    if "text" in item:
+                        chunks.append(str(item["text"]))
+                    if "json" in item:
+                        chunks.append(json.dumps(item["json"], default=str))
+                    if "data" in item:
+                        chunks.append(json.dumps(item["data"], default=str))
+                else:
+                    chunks.append(str(item))
+    return "\n".join(chunks)
+
+
+def evaluate_grounding(scenario: str, tool_result_text: str) -> tuple[bool, list[str]]:
+    """Return (grounded, errors) for a scenario given flattened tool output."""
+    errors: list[str] = []
+    lowered = tool_result_text.lower()
+    if not tool_result_text.strip():
+        errors.append("no tool results were returned to the model")
+    for marker in TOOL_FAILURE_MARKERS:
+        if marker in lowered:
+            errors.append(f"tool invocation failed: {marker}")
+            break
+    for needle in REQUIRED_EVIDENCE.get(scenario, []):
+        if needle.lower() not in lowered:
+            errors.append(f"missing expected evidence: {needle}")
+    return (len(errors) == 0, errors)
+
 
 class DemoModelProvider(Model):
     """A scripted model provider for demo mode.
 
-    This model returns pre-scripted responses that demonstrate the
-    incident investigation workflow without requiring actual LLM calls.
+    Tool-call turns are scripted. The closing RCA is emitted only when
+    the preceding tool results contain the scenario's expected evidence.
     """
 
     def __init__(self, scenario: str = "crashloop"):
         """Initialize with a scenario name."""
         self.scenario = scenario
         self.call_count = 0
+        self.tool_results_seen: str = ""
+        self.grounded: bool | None = None
+        self.grounding_errors: list[str] = []
         self._responses = SCENARIO_RESPONSES.get(scenario, SCENARIO_RESPONSES["crashloop"])
 
     def update_config(self, **model_config: Any) -> None:
@@ -54,6 +128,7 @@ class DemoModelProvider(Model):
         **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
         """Stream responses from the model."""
+        self.tool_results_seen = extract_tool_result_text(messages)
         response = self._get_next_response()
 
         if response.get("tool_use"):
@@ -109,12 +184,49 @@ class DemoModelProvider(Model):
         """Generate structured output."""
         yield {"type": "error", "message": "Structured output not supported in demo mode"}
 
+    def _ungrounded_response(self, errors: list[str]) -> dict[str, Any]:
+        """Build a refusal when tool output does not support an RCA."""
+        missing = "\n".join(f"- {err}" for err in errors)
+        return {
+            "text": (
+                f"## Investigation Failed ({UNGROUNDED_MARKER})\n\n"
+                "The scripted demo model will not emit a root-cause analysis "
+                "because the investigation tools did not return the expected evidence.\n\n"
+                f"**Confidence**: 0%\n\n"
+                f"**Problems**:\n{missing}\n\n"
+                "Fix tool registration and re-run the demo. A canned RCA is not a substitute "
+                "for actual tool output."
+            ),
+            "stop_reason": "end_turn",
+        }
+
+    def _is_final_rca(self, response: dict[str, Any]) -> bool:
+        text = response.get("text") or ""
+        return (
+            response.get("stop_reason") == "end_turn"
+            and "Incident Investigation Complete" in text
+            and not response.get("tool_use")
+        )
+
     def _get_next_response(self) -> dict[str, Any]:
-        """Get the next scripted response."""
+        """Get the next scripted response, gating the RCA on tool evidence."""
         if self.call_count < len(self._responses):
             response = self._responses[self.call_count]
             self.call_count += 1
+            if self._is_final_rca(response):
+                self.grounded, self.grounding_errors = evaluate_grounding(
+                    self.scenario, self.tool_results_seen
+                )
+                if not self.grounded:
+                    return self._ungrounded_response(self.grounding_errors)
             return response
+
+        if self.grounded is None:
+            self.grounded, self.grounding_errors = evaluate_grounding(
+                self.scenario, self.tool_results_seen
+            )
+            if not self.grounded:
+                return self._ungrounded_response(self.grounding_errors)
 
         return {
             "text": "Investigation complete. Please review the incident report above.",

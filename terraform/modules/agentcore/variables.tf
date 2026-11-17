@@ -13,9 +13,34 @@ variable "environment" {
 }
 
 variable "bedrock_model_id" {
-  description = "Bedrock model ID for the agent"
+  description = "Bedrock inference profile ID for the agent"
   type        = string
-  default     = "anthropic.claude-3-sonnet-20240229-v1:0"
+  default     = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+}
+
+variable "bedrock_foundation_model_id" {
+  description = "Underlying foundation model ID without the geographic prefix"
+  type        = string
+  default     = "anthropic.claude-sonnet-4-5-20250929-v1:0"
+}
+
+variable "remediation_external_id" {
+  description = "Optional ExternalId for the remediation role. Null for same-account."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "eks_cluster_names" {
+  description = "EKS clusters that receive access entries for the runtime/remediation roles"
+  type        = list(string)
+  default     = []
+}
+
+variable "eks_remediation_namespaces" {
+  description = "Namespaces the AgentCore remediation role may edit"
+  type        = list(string)
+  default     = ["production"]
 }
 
 # ECR Configuration
@@ -32,9 +57,9 @@ variable "container_image_uri" {
 }
 
 variable "image_tag" {
-  description = "Docker image tag to use"
+  description = "Immutable Docker image tag to pull from ECR"
   type        = string
-  default     = "latest"
+  default     = "0.1.0"
 }
 
 # Runtime Configuration
