@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-I built this because most of my incident time went into the same first fifteen minutes: pull logs, check events, match a runbook, draft a fix. The agent does that loop. It does not push a change without HITL.
+I built this because most of my incident time went into the same first fifteen minutes: pull logs, check events, match a runbook, draft a fix. The agent does that loop. It does not push a change without human approval (HITL).
 
 CLI and optional AgentCore runtime that investigates EKS, ECS, and CloudWatch incidents with Strands tools, then proposes remediations that require human approval before they run.
 
