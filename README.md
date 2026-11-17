@@ -8,9 +8,22 @@ I built this because most of my incident time went into the same first fifteen m
 
 CLI and optional AgentCore runtime that investigates EKS, ECS, and CloudWatch incidents with Strands tools, then proposes remediations that require human approval before they run.
 
+## Quick start
+
+Needs **Python 3.11+**. On macOS, `python3` is often still 3.9 — use `python3.12` (or 3.11).
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+make install-dev
+make test && make demo
+```
+
+No AWS credentials. Other scenarios: `python -m aws_incident_copilot.cli demo --scenario oom` or `alb-5xx`.
+
 ## What actually works
 
-A clone + `make demo` (or `python -m aws_incident_copilot.cli demo --scenario <name>`) does the following offline, with no AWS credentials:
+After the quick start, `make demo` (or `python -m aws_incident_copilot.cli demo --scenario <name>`) does the following offline, with no AWS credentials:
 
 1. Registers CloudWatch, Kubernetes, and ECS investigation tools as Strands `@tool` wrappers.
 2. Runs a scripted model that **calls those tools** against fixture data for the chosen scenario.
