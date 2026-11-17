@@ -1,10 +1,12 @@
 # AWS Incident Copilot
 
-CLI and optional AgentCore runtime that investigates EKS, ECS, and CloudWatch incidents with Strands tools, then proposes remediations that require human approval before they run.
-
 [![CI](https://github.com/harin-singh/aws-incident-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/harin-singh/aws-incident-copilot/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+
+I built this because most of my incident time went into the same first fifteen minutes: pull logs, check events, match a runbook, draft a fix. The agent does that loop. It does not push a change without you.
+
+CLI and optional AgentCore runtime that investigates EKS, ECS, and CloudWatch incidents with Strands tools, then proposes remediations that require human approval before they run.
 
 ## What actually works
 
@@ -82,11 +84,14 @@ The zip artifact is a thin invoker. Full in-process investigation needs the cont
 
 ## Demo
 
+Needs **Python 3.11+**. On macOS, `python3` is often still 3.9 from Command Line Tools — use `python3.12` (or 3.11) for the venv.
+
 ```bash
 git clone https://github.com/harin-singh/aws-incident-copilot.git
 cd aws-incident-copilot
-python -m venv venv
-source venv/bin/activate
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 make install-dev
 
 make demo
@@ -104,6 +109,12 @@ python -m aws_incident_copilot.cli scenarios
 | `alb-5xx` | `get_metrics`, `query_logs`, `describe_alarms` | `Too many connections`, `HTTPCode_Target_5XX` |
 
 CI runs every scenario through the CLI and fails on `tool not found`, `UNGROUNDED`, a traceback, or a crash.
+
+Dummy data lives in the repo:
+
+- `src/aws_incident_copilot/demo/scenarios.py` — fake alerts
+- `src/aws_incident_copilot/demo/fixtures.py` — fake CloudWatch / Kubernetes / ECS responses
+- `src/aws_incident_copilot/demo/model_stub.py` — scripted tool calls and the written report
 
 ## Remediation
 
@@ -165,8 +176,8 @@ Unit tests cover live CloudWatch/ECS via moto, Kubernetes via a fake API, remedi
 ## Local development
 
 ```bash
-python -m venv venv
-source venv/bin/activate
+python3.12 -m venv .venv
+source .venv/bin/activate
 make install-dev   # package + [dev] extras + git hooks
 make pre-commit    # pre-commit run --all-files
 ```
